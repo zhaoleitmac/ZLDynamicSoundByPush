@@ -17,6 +17,8 @@ typedef NS_ENUM(NSUInteger, NotificationServiceSoundPlayerType) {
     NotificationServiceSoundPlayerTypeAudioService = 2,
 };
 
+NSString * const kDynamicSoundIdentifier = @"DynamicSoundIdentifier";
+
 @interface NotificationService () <AVAudioPlayerDelegate>
 
 @property (nonatomic, strong) void (^contentHandler)(UNNotificationContent *contentToDeliver);
@@ -39,14 +41,65 @@ static void completionCallback(SystemSoundID ssID, void *clientData){}
     self.bestAttemptContent = [request.content mutableCopy];
     
     NSDictionary *userInfo = request.content.userInfo;
-    [self playBySoundPlayType:NotificationServiceSoundPlayerTypeAudioService WithUserInfo:userInfo];
     
-    //    [self playBySystemReadWithUserInfo:userInfo];
-    
+    if (@available(iOS 12.1, *)) {//iOS12.1后NotificationServiceExtension被禁止使用AudioSession，无法合成音频和播放音频
+        [self playWithRegisterLocalNotifications:userInfo];
+    } else {
+        [self playBySoundPlayType:NotificationServiceSoundPlayerTypeAudioService WithUserInfo:userInfo];
+//        [self playBySystemReadWithUserInfo:userInfo];
+    }
 }
 
 - (void)serviceExtensionTimeWillExpire {
     self.contentHandler(self.bestAttemptContent);
+}
+
+#pragma mark - After iOS 12.1
+
+- (void)playWithRegisterLocalNotifications:(NSDictionary *)userInfo {
+    NSArray *soundNames = [self soundNamesWithUserInfo:userInfo];
+    NSInteger count = soundNames.count;
+    for (int i = 0; i < count; i++) {
+        NSString *soundName = soundNames[i];
+        dispatch_semaphore_t semaphore = dispatch_semaphore_create(0);
+        [self registerNotificationWithSoundName:soundName completeHandler:^(Float64 duration) {
+            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(duration * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+                dispatch_semaphore_signal(semaphore);
+                if (i == count - 1) {
+                    self.contentHandler(self.bestAttemptContent);
+                }
+            });
+        }];
+        dispatch_semaphore_wait(semaphore, DISPATCH_TIME_FOREVER);
+    }
+}
+
+- (void)registerNotificationWithSoundName:(NSString *)soundName completeHandler:(void (^)(Float64 duration))complete {
+    
+    UNMutableNotificationContent *content = [[UNMutableNotificationContent alloc] init];
+    content.title = @"";
+    content.subtitle = @"";
+    content.body = @"";
+    content.sound = [UNNotificationSound soundNamed:[NSString stringWithFormat:@"%@.m4a",soundName]];
+    content.categoryIdentifier = [NSString stringWithFormat:@"%@%@", kDynamicSoundIdentifier, soundName];
+    
+    UNTimeIntervalNotificationTrigger *trigger = [UNTimeIntervalNotificationTrigger triggerWithTimeInterval:0.01 repeats:NO];
+    
+    UNNotificationRequest *request = [UNNotificationRequest requestWithIdentifier:[NSString stringWithFormat:@"%@%@", kDynamicSoundIdentifier, soundName] content:content trigger:trigger];
+    
+    //获取音频持续时间，以预备下一次本地推送
+    NSString *fileP = [[NSBundle mainBundle] pathForResource:soundName ofType:@"m4a"];
+    NSURL *url = [NSURL fileURLWithPath:fileP];
+    AVURLAsset *audioAsset = [[AVURLAsset alloc] initWithURL:url options:nil];
+    Float64 duration = CMTimeGetSeconds(audioAsset.duration);
+    
+    [[UNUserNotificationCenter currentNotificationCenter] addNotificationRequest:request withCompletionHandler:^(NSError * _Nullable error) {
+        if (error == nil) {
+            if (complete) {
+                complete(duration);
+            }
+        }
+    }];
 }
 
 #pragma mark - 音频处理

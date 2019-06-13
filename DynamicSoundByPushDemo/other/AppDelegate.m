@@ -12,6 +12,8 @@
 #import "DSLog.h"
 #import "ZLNotificationSevice.h"
 
+NSString * const kDynamicSoundIdentifier = @"DynamicSoundIdentifier";
+
 @interface AppDelegate () <UNUserNotificationCenterDelegate>
 
 @end
@@ -27,6 +29,7 @@
 }
 
 #pragma mark - register to APNS
+
 ///向APNS发起注册请求
 - (void)registerToAPNS {
     if (@available(iOS 10.0, *)) {
@@ -87,6 +90,12 @@
     if ([request.trigger isKindOfClass:[UNPushNotificationTrigger class]]) {//远程推送，不需要展示alert
         completionHandler(UNNotificationPresentationOptionBadge | UNNotificationPresentationOptionSound);
         [[ZLNotificationSevice sharedInstance] receiveRemoteNotification:userInfo fetchCompletionHandler:^(UIBackgroundFetchResult result) {}];
+    } else if ([request.trigger isKindOfClass:[UNTimeIntervalNotificationTrigger class]]) {//本地推送
+        ///iOS12.1用连续本地推送实现音频动态
+        if ([request.content.categoryIdentifier hasPrefix:kDynamicSoundIdentifier]) {
+            //实现动态语音只需要音频
+            completionHandler(UNNotificationPresentationOptionSound);
+        }
     }
 
 }
