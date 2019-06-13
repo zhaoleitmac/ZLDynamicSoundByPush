@@ -66,7 +66,7 @@ NSString * const kDynamicSoundIdentifier = @"DynamicSoundIdentifier";
 
 - (void)application:(UIApplication *)app didFailToRegisterForRemoteNotificationsWithError:(NSError *)error {
     // 注册APNS失败.
-    DSDebugLog(@"Registration failed! the error is %@", error.domain);
+    DSDebugLog(@"Registration failed! the error is %@", error);
 }
 
 #pragma mark - Push Handle Before iOS 10
